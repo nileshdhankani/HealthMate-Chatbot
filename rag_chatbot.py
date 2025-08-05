@@ -40,8 +40,22 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 def get_response(query):
     query_vec = embed_model.encode([query])
     D, I = index.search(np.array(query_vec), k=3)
-    context = "\n\n".join([docs[i] for i in I[0]])
-    prompt = f"""You are a helpful assistant with knowledge about SDG 3 (Health and Well-being).
+
+    # Gather the top context passages
+    retrieved_passages = [docs[i] for i in I[0] if i < len(docs)]
+    context = "\n\n".join(retrieved_passages).strip()
+
+    # Fallback if no context is found or empty string
+    if not context:
+        prompt = f"""
+You are a helpful assistant with expertise in general health and SDG 3 (Good Health and Well-being).
+Answer the question below using your own knowledge:
+
+Question: {query}
+Answer:"""
+    else:
+        prompt = f"""
+You are a helpful assistant with knowledge about SDG 3 (Health and Well-being).
 Only use the context below to answer the question.
 
 Context:
@@ -49,10 +63,12 @@ Context:
 
 Question: {query}
 Answer:"""
+
     try:
         return model.generate_content(prompt).text
     except Exception as e:
         return f"⚠️ Error: {str(e)}"
+
 
 # ---------------------- Streamlit UI ----------------------
 st.set_page_config(page_title="SDG 3 Chatbot", page_icon="💊")
