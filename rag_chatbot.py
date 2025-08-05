@@ -45,8 +45,8 @@ def get_response(query):
     retrieved_passages = [docs[i] for i in I[0] if i < len(docs)]
     context = "\n\n".join(retrieved_passages).strip()
 
-    # Fallback if no context is found or empty string
-    if not context:
+    # Fallback if no context is found or too short
+    if not context or len(context.split()) < 20:
         prompt = f"""
 You are a helpful assistant with expertise in general health and SDG 3 (Good Health and Well-being).
 Answer the question below using your own knowledge:
@@ -56,7 +56,7 @@ Answer:"""
     else:
         prompt = f"""
 You are a helpful assistant with knowledge about SDG 3 (Health and Well-being).
-Only use the context below to answer the question.
+Only use the context below to answer the question. If the context is not relevant, you may use your own knowledge.
 
 Context:
 {context}
