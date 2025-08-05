@@ -1,5 +1,5 @@
 streamlit
 google-generativeai
-chromadb
 sentence-transformers
+faiss-cpu
 python-dotenv
