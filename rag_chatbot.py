@@ -1,18 +1,19 @@
-# RAG-style Chatbot for SDG 3 using Gemini API + FAISS + Streamlit
+# RAG-style Chatbot for SDG 3 using Gemini API + ChromaDB + Streamlit
 
 # ----------------------
 # Step 1: Install Required Packages
-# pip install streamlit google-generativeai faiss-cpu sentence-transformers python-dotenv
+# pip install streamlit google-generativeai chromadb sentence-transformers python-dotenv
 # ----------------------
 
 import os
-import faiss
 import pickle
-import numpy as np
 import streamlit as st
+import numpy as np
 import google.generativeai as genai
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
+import chromadb
+from chromadb.config import Settings
 
 # ----------------------
 # Step 2: Load API Key
@@ -27,34 +28,32 @@ genai.configure(api_key=GEMINI_API_KEY)
 # ----------------------
 # Step 3: Prepare SDG 3 Knowledge Base (if not already embedded)
 # ----------------------
-def prepare_embeddings():
-    with open("sdg3_docs.txt", "r") as f:
+CHROMA_PATH = "chroma_db"
+COLLECTION_NAME = "sdg3_docs"
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=CHROMA_PATH))
+
+if COLLECTION_NAME not in [c.name for c in client.list_collections()]:
+    with open("sdg3_docs.txt", "r", encoding="utf-8") as f:
         docs = f.read().split("\n\n")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    collection = client.create_collection(name=COLLECTION_NAME)
     embeddings = model.encode(docs)
-    index = faiss.IndexFlatL2(embeddings[0].shape[0])
-    index.add(embeddings)
-    with open("sdg3_knowledge.pkl", "wb") as f:
-        pickle.dump((docs, index, model), f)
-
-if not os.path.exists("sdg3_knowledge.pkl"):
-    prepare_embeddings()
+    for i, (doc, emb) in enumerate(zip(docs, embeddings)):
+        collection.add(documents=[doc], ids=[f"doc_{i}"], embeddings=[emb.tolist()])
+else:
+    collection = client.get_collection(COLLECTION_NAME)
 
 # ----------------------
-# Step 4: Load Embeddings
+# Step 4: Define RAG Function
 # ----------------------
-with open("sdg3_knowledge.pkl", "rb") as f:
-    docs, index, embed_model = pickle.load(f)
-
-# ----------------------
-# Step 5: Define RAG Function
-# ----------------------
-model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
+gemini = genai.GenerativeModel("models/gemini-1.5-flash-latest")
 
 def query_sdg3_chatbot(user_query):
-    query_vec = embed_model.encode([user_query])
-    D, I = index.search(np.array(query_vec), k=3)
-    relevant_passages = [docs[i] for i in I[0]]
+    query_embedding = model.encode([user_query])[0].tolist()
+    results = collection.query(query_embeddings=[query_embedding], n_results=3)
+    relevant_passages = results["documents"][0]
     context = "\n\n".join(relevant_passages)
 
     prompt = f"""
@@ -67,13 +66,13 @@ Question: {user_query}
 Answer:
 """
     try:
-        response = model.generate_content(prompt)
+        response = gemini.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"Error: {str(e)}"
 
 # ----------------------
-# Step 6: Streamlit UI
+# Step 5: Streamlit UI
 # ----------------------
 st.set_page_config(page_title="SDG 3 RAG Chatbot", page_icon="🧬")
 st.title("🧬 HealthMate RAG - SDG 3 Expert Bot")
@@ -100,11 +99,14 @@ for user_msg, bot_msg in st.session_state.chat_history:
     st.chat_message("assistant").write(bot_msg)
 
 # ----------------------
-# Step 7: Deployment
+# Step 6: Deployment Guide
 # ----------------------
-# 1. Save this as `rag_sdg3_chatbot.py`
-# 2. Create `.env` with your Google Gemini key:
+# 1. Save this file as `rag_chatbot.py`
+# 2. Upload `sdg3_docs.txt` (your knowledge base)
+# 3. Create a `.env` file with:
 #    GOOGLE_API_KEY=your_key_here
-# 3. Ensure `sdg3_docs.txt` is in the same folder.
-# 4. Run: `streamlit run rag_sdg3_chatbot.py`
-# 5. Or deploy on Streamlit Cloud with secret set.
+# 4. Run locally: `streamlit run rag_chatbot.py`
+# 5. To deploy:
+#    - Push to GitHub
+#    - Deploy on Streamlit Cloud
+#    - Add `GOOGLE_API_KEY` under Secrets
